@@ -1,13 +1,14 @@
 import html
+import uuid
 import streamlit as st
+import streamlit.components.v1 as components
 import folium
 from streamlit_folium import st_folium
 from supabase import create_client
-from datetime import datetime
 
 st.set_page_config(
     page_title="Memory Map",
-    page_icon="📍",
+    page_icon="🌸",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -22,20 +23,45 @@ def get_setting(name: str) -> str:
 APP_PASSWORD = get_setting("APP_PASSWORD")
 SUPABASE_URL = get_setting("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = get_setting("SUPABASE_SERVICE_ROLE_KEY")
+ADMIN_PASSWORD = get_setting("ADMIN_PASSWORD")
+STORAGE_BUCKET = "memory-images"
 
-# ---------- Simple shared-password gate ----------
+# ---------- Soft pink theme ----------
+st.markdown("""
+<style>
+:root {
+    --pink-bg: #fff1f4;
+    --pink-card: #fffafb;
+    --pink-accent: #d889a2;
+    --pink-dark: #754454;
+}
+.stApp { background: var(--pink-bg); }
+[data-testid="stHeader"] { background: rgba(255,241,244,.88); }
+[data-testid="stSidebar"] { background: #fbe6ec; }
+.block-container { padding-top: 2rem; }
+h1, h2, h3 { color: var(--pink-dark); }
+.stButton > button, .stFormSubmitButton > button {
+    border-radius: 18px;
+    border: 1px solid #e7b8c7;
+}
+div[data-testid="stExpander"] {
+    background: var(--pink-card);
+    border: 1px solid #f0d4dd;
+    border-radius: 14px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- Shared password gate ----------
 if not APP_PASSWORD:
-    st.error(
-        "还没有配置访问密码。请在 Streamlit Cloud 的 App settings → Secrets "
-        "中添加 APP_PASSWORD；本地运行则填写 .streamlit/secrets.toml。"
-    )
+    st.error("尚未配置 APP_PASSWORD。请在 Streamlit Cloud → App settings → Secrets 中添加。")
     st.stop()
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("Memory Map")
+    st.title("🌸 Memory Map")
     st.caption("在地图上的某个地方，留下一段文字。")
     with st.form("login_form"):
         password = st.text_input("访问密码", type="password")
@@ -50,10 +76,7 @@ if not st.session_state.authenticated:
 
 # ---------- Database ----------
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-    st.error(
-        "数据库尚未配置。请在 Streamlit Cloud 的 Secrets 中添加 "
-        "SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY。"
-    )
+    st.error("数据库尚未配置，请检查 SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY。")
     st.stop()
 
 @st.cache_resource
@@ -65,34 +88,73 @@ supabase = get_supabase()
 def fetch_stories():
     result = (
         supabase.table("stories")
-        .select("id, latitude, longitude, content, created_at")
+        .select("id, latitude, longitude, content, created_at, image_url, image_path")
         .order("created_at", desc=True)
         .execute()
     )
     return result.data or []
 
-def save_story(latitude: float, longitude: float, content: str):
-    return (
-        supabase.table("stories")
-        .insert({
-            "latitude": float(latitude),
-            "longitude": float(longitude),
-            "content": content.strip(),
-        })
-        .execute()
+def upload_image(uploaded_file):
+    suffix = uploaded_file.name.rsplit(".", 1)[-1].lower() if "." in uploaded_file.name else ""
+    allowed = {"jpg", "jpeg", "png", "webp"}
+    if suffix not in allowed:
+        raise ValueError("图片仅支持 JPG、JPEG、PNG、WEBP 格式。")
+    if uploaded_file.size > 5 * 1024 * 1024:
+        raise ValueError("单张图片不能超过 5MB。")
+    path = f"{uuid.uuid4().hex}.{suffix}"
+    content_type = uploaded_file.type or "application/octet-stream"
+    supabase.storage.from_(STORAGE_BUCKET).upload(
+        path,
+        uploaded_file.getvalue(),
+        file_options={"content-type": content_type, "upsert": "false"},
     )
+    public_url = supabase.storage.from_(STORAGE_BUCKET).get_public_url(path)
+    return path, public_url
 
-# ---------- Page ----------
-st.title("Memory Map")
+def save_story(latitude, longitude, content, image_path=None, image_url=None):
+    return supabase.table("stories").insert({
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "content": content.strip(),
+        "image_path": image_path,
+        "image_url": image_url,
+    }).execute()
+
+def delete_story(story):
+    # Delete stored image first, then delete its database row.
+    image_path = story.get("image_path")
+    if image_path:
+        supabase.storage.from_(STORAGE_BUCKET).remove([image_path])
+    supabase.table("stories").delete().eq("id", story["id"]).execute()
+
+# ---------- Music player ----------
+st.title("🌸 Memory Map")
 st.caption("中国 · 韩国 | 点击地图上的一个地方，留下一段文字。")
+
+st.markdown("### 🎵 陈粒 · ⭐️")
+st.caption("点击播放按钮收听。音乐由网易云音乐提供，能否播放取决于歌曲版权、地区和平台登录状态。")
+components.html("""
+<div style="max-width:520px; margin:0 auto; padding:10px 14px;
+            background:#fffafb; border:1px solid #f0d4dd;
+            border-radius:16px; box-shadow:0 3px 14px rgba(160,90,115,.08);">
+  <iframe title="网易云音乐播放器"
+    src="https://music.163.com/outchain/player?type=2&id=2734045175&auto=0&height=66"
+    width="100%" height="86" frameborder="0" marginwidth="0" marginheight="0"
+    allow="autoplay; encrypted-media" loading="lazy">
+  </iframe>
+  <div style="text-align:center; font:12px sans-serif; color:#9a7180;">
+    <a href="https://music.163.com/song?id=2734045175" target="_blank"
+       rel="noopener noreferrer" style="color:#a96e83;text-decoration:none;">
+       在网易云音乐打开原歌曲
+    </a>
+  </div>
+</div>
+""", height=118)
 
 try:
     stories = fetch_stories()
 except Exception as exc:
-    st.error(
-        "读取数据库失败。请检查 Supabase URL、Service Role Key，以及是否已经运行 "
-        "supabase_schema.sql。"
-    )
+    st.error("读取数据库失败。请确认已运行升级版 SQL，并检查 Supabase 配置。")
     with st.expander("技术错误详情"):
         st.code(str(exc))
     st.stop()
@@ -100,8 +162,6 @@ except Exception as exc:
 left, right = st.columns([2.25, 1], gap="large")
 
 with left:
-    # OpenStreetMap tiles are suitable for a prototype. Review tile-provider
-    # terms, China map requirements, and coordinate alignment before public use.
     map_obj = folium.Map(
         location=[35.5, 124.0],
         zoom_start=4,
@@ -110,22 +170,30 @@ with left:
     )
 
     for story in stories:
-        content = html.escape(str(story.get("content", ""))).replace("\n", "<br>")
-        created = story.get("created_at", "")
+        safe_content = html.escape(str(story.get("content", ""))).replace("\n", "<br>")
+        image_html = ""
+        if story.get("image_url"):
+            safe_url = html.escape(str(story["image_url"]), quote=True)
+            image_html = (
+                f'<img src="{safe_url}" '
+                'style="width:100%;max-height:180px;object-fit:contain;'
+                'border-radius:8px;margin-top:8px;" />'
+            )
         popup_html = f"""
-        <div style="width: 220px; max-width: 220px; white-space: normal;
-                    font-family: sans-serif; line-height: 1.5;">
-          <div style="font-size: 13px; color: #777; margin-bottom: 6px;">
-            {html.escape(str(created)[:16])}
+        <div style="width:230px;max-width:230px;white-space:normal;
+                    font-family:sans-serif;line-height:1.5;">
+          <div style="font-size:12px;color:#987786;margin-bottom:6px;">
+            {html.escape(str(story.get("created_at", ""))[:16])}
           </div>
-          <div style="font-size: 14px;">{content}</div>
+          <div style="font-size:14px;color:#543746;">{safe_content}</div>
+          {image_html}
         </div>
         """
         folium.Marker(
             location=[story["latitude"], story["longitude"]],
             tooltip="点击阅读这条记录",
             popup=folium.Popup(popup_html, max_width=280),
-            icon=folium.Icon(color="darkpurple", icon="comment", prefix="fa"),
+            icon=folium.Icon(color="pink", icon="heart", prefix="fa"),
         ).add_to(map_obj)
 
     map_result = st_folium(
@@ -143,7 +211,7 @@ with left:
             st.session_state.selected_location = new_location
 
 with right:
-    st.subheader("留下记录")
+    st.subheader("💌 留下记录")
     st.write("在左侧地图点击你想记录的地点，再写下文字。")
 
     selected = st.session_state.get("selected_location")
@@ -156,11 +224,16 @@ with right:
         content = st.text_area(
             "你的文字",
             placeholder="在这里写下一段记忆……",
-            height=220,
+            height=200,
             max_chars=3000,
         )
+        image_file = st.file_uploader(
+            "为这段记忆添加图片（可选）",
+            type=["jpg", "jpeg", "png", "webp"],
+            help="支持 JPG、PNG、WEBP，单张最大 5MB。",
+        )
         submit_story = st.form_submit_button(
-            "保存记录",
+            "保存这段记忆",
             use_container_width=True,
             disabled=selected is None,
         )
@@ -171,31 +244,57 @@ with right:
         elif selected is None:
             st.warning("请先在地图上选择一个地点。")
         else:
+            uploaded_path = None
             try:
-                save_story(selected[0], selected[1], content)
+                image_url = None
+                if image_file is not None:
+                    uploaded_path, image_url = upload_image(image_file)
+                save_story(selected[0], selected[1], content, uploaded_path, image_url)
                 st.session_state.selected_location = None
                 st.session_state.map_version = st.session_state.get("map_version", 0) + 1
-                st.success("记录已保存。刷新地图后也会保留。")
+                st.success("记忆已保存。")
                 st.rerun()
             except Exception as exc:
-                st.error("保存失败，请检查数据库设置。")
+                if uploaded_path:
+                    try:
+                        supabase.storage.from_(STORAGE_BUCKET).remove([uploaded_path])
+                    except Exception:
+                        pass
+                st.error("保存失败。请检查图片存储桶和数据库升级是否完成。")
                 with st.expander("技术错误详情"):
                     st.code(str(exc))
 
     st.divider()
-    st.subheader(f"已保存的记录（{len(stories)}）")
+    st.subheader(f"已保存的记忆（{len(stories)}）")
+
     if not stories:
         st.caption("地图上还没有记录。你可以先创建第一条。")
     else:
         for idx, story in enumerate(stories):
-            snippet = str(story["content"]).strip().replace("\n", " ")
-            if len(snippet) > 110:
-                snippet = snippet[:110] + "…"
-            with st.expander(f"记录 {len(stories) - idx} · {story['latitude']:.3f}, {story['longitude']:.3f}"):
+            title = f"记忆 {len(stories) - idx} · {story['latitude']:.3f}, {story['longitude']:.3f}"
+            with st.expander(title):
                 st.write(story["content"])
                 st.caption(f"创建时间：{story.get('created_at', '未知')}")
+                if story.get("image_url"):
+                    st.image(story["image_url"], use_container_width=True)
+
+                # Deletion is restricted to the site owner, not every shared-password visitor.
+                if ADMIN_PASSWORD:
+                    confirm_key = f"confirm_delete_{story['id']}"
+                    if st.checkbox("我确认要永久删除这条记忆", key=confirm_key):
+                        if st.button("删除这条记忆", key=f"delete_{story['id']}", type="secondary"):
+                            try:
+                                delete_story(story)
+                                st.session_state.map_version = st.session_state.get("map_version", 0) + 1
+                                st.success("这条记忆已删除。")
+                                st.rerun()
+                            except Exception as exc:
+                                st.error("删除失败，请检查存储权限和数据库连接。")
+                                with st.expander("技术错误详情"):
+                                    st.code(str(exc))
+                else:
+                    st.caption("删除功能尚未启用：请在 Streamlit Secrets 中设置 ADMIN_PASSWORD。")
 
 st.caption(
-    "原型说明：目前所有持有访问密码的人都能添加记录；本版本暂未提供单条记录编辑、删除、"
-    "投稿审核或个人身份管理。请只分享给信任的朋友。"
+    "请只与信任的朋友分享访问密码。当前版本没有个人账号；删除权限由单独的管理员密码控制。"
 )
