@@ -156,11 +156,29 @@ def delete_story(story):
         supabase.storage.from_(STORAGE_BUCKET).remove([image_path])
     supabase.table("stories").delete().eq("id", story["id"]).execute()
 
-# ---------- Header: exact requested copy + supplied image ----------
+# ---------- Header: title + music player on one line, image at upper-right ----------
 header_left, header_right = st.columns([2.15, 1], gap="large", vertical_alignment="center")
 with header_left:
+    title_col, music_col = st.columns([1.18, 1], gap="medium", vertical_alignment="center")
+    with title_col:
+        st.markdown('<div class="our-title">our memory map</div>', unsafe_allow_html=True)
+    with music_col:
+        st.markdown('<div style="color:#17385d;font-weight:700;font-size:.95rem;margin:0 0 .25rem .15rem;">♪ 陈粒 · ⭐️</div>', unsafe_allow_html=True)
+        components.html("""
+        <div style="padding:7px 9px;background:rgba(255,255,255,.82);
+                    border:1px solid rgba(255,255,255,.92);border-radius:15px;
+                    box-shadow:0 8px 24px rgba(20,50,80,.12);">
+          <iframe title="网易云音乐播放器"
+            src="https://music.163.com/outchain/player?type=2&id=2734045175&auto=0&height=66"
+            width="100%" height="86" frameborder="0" marginwidth="0" marginheight="0"
+            allow="autoplay; encrypted-media" loading="lazy"></iframe>
+          <div style="text-align:center;font:11px sans-serif;color:#526f8c;">
+            <a href="https://music.163.com/song?id=2734045175" target="_blank" rel="noopener noreferrer"
+               style="color:#315b83;text-decoration:none;">在网易云音乐打开原歌曲</a>
+          </div>
+        </div>
+        """, height=112)
     st.markdown("""
-    <div class="our-title">our memory map</div>
     <div class="our-copy">
       <p>我们一起去过很多地方 经历过很多美好。</p>
       <p>我想和你看下暴雨的沙漠 看大海亲吻鲨鱼 一起去台北的那个地方 一起体会100种生活 一起在假寐与现实之间两难。</p>
@@ -173,25 +191,6 @@ with header_right:
         st.image(str(HEADER_PHOTO_PATH), use_container_width=True)
     else:
         st.warning("找不到 assets/header_photo.jpg，请确认图片文件已上传。")
-
-# ---------- Music player ----------
-st.markdown('<div style="text-align:center;color:#17385d;font-weight:700;margin:.2rem 0 .25rem 0;">♪ 陈粒 · ⭐️</div>', unsafe_allow_html=True)
-_, music_col, _ = st.columns([1, 1.45, 1])
-with music_col:
-    components.html("""
-    <div style="padding:8px 12px;background:rgba(255,255,255,.76);
-                border:1px solid rgba(255,255,255,.9);border-radius:17px;
-                box-shadow:0 8px 28px rgba(20,50,80,.12);">
-      <iframe title="网易云音乐播放器"
-        src="https://music.163.com/outchain/player?type=2&id=2734045175&auto=0&height=66"
-        width="100%" height="86" frameborder="0" marginwidth="0" marginheight="0"
-        allow="autoplay; encrypted-media" loading="lazy"></iframe>
-      <div style="text-align:center;font:12px sans-serif;color:#526f8c;">
-        <a href="https://music.163.com/song?id=2734045175" target="_blank" rel="noopener noreferrer"
-           style="color:#315b83;text-decoration:none;">在网易云音乐打开原歌曲</a>
-      </div>
-    </div>
-    """, height=116)
 
 try:
     stories = fetch_stories()
