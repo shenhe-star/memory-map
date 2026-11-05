@@ -26,7 +26,6 @@ def get_setting(name: str) -> str:
 APP_PASSWORD = get_setting("APP_PASSWORD")
 SUPABASE_URL = get_setting("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = get_setting("SUPABASE_SERVICE_ROLE_KEY")
-ADMIN_PASSWORD = get_setting("ADMIN_PASSWORD")
 STORAGE_BUCKET = "memory-images"
 ASSET_DIR = Path(__file__).parent / "assets"
 BACKGROUND_PATH = ASSET_DIR / "background_portrait.jpg"
@@ -299,32 +298,27 @@ with right:
                     if story.get("image_url"):
                         st.image(story["image_url"], use_container_width=True)
 
-                    if ADMIN_PASSWORD:
-                        if "admin_authenticated" not in st.session_state:
-                            st.session_state.admin_authenticated = False
-                        with st.expander("管理员：管理或删除记忆"):
-                            if not st.session_state.admin_authenticated:
-                                admin_try = st.text_input("管理员密码", type="password", key="admin_password_input")
-                                if st.button("解锁删除权限", key="unlock_admin"):
-                                    if admin_try == ADMIN_PASSWORD:
-                                        st.session_state.admin_authenticated = True
-                                        st.rerun()
-                                    else:
-                                        st.error("管理员密码不正确。")
-                            else:
-                                confirm_key = f"confirm_delete_{story['id']}"
-                                if st.checkbox("我确认要永久删除这条记忆", key=confirm_key):
-                                    if st.button("删除这条记忆", key=f"delete_{story['id']}", type="secondary"):
-                                        try:
-                                            delete_story(story)
-                                            st.session_state.map_version = st.session_state.get("map_version", 0) + 1
-                                            st.success("这条记忆已删除。")
-                                            st.rerun()
-                                        except Exception as exc:
-                                            st.error("删除失败，请检查存储权限和数据库连接。")
-                                            with st.expander("技术错误详情"):
-                                                st.code(str(exc))
-                    else:
-                        st.caption("删除功能尚未启用：请在 Streamlit Secrets 中设置 ADMIN_PASSWORD。")
+                    # 每条记忆都使用自己的 ID 作为组件 key，避免记录增加后发生重复 Key 错误。
+                    confirm_key = f"confirm_delete_{story['id']}"
+                    if st.checkbox(
+                        "我确认要永久删除这条记忆",
+                        key=confirm_key,
+                    ):
+                        if st.button(
+                            "删除这条记忆",
+                            key=f"delete_{story['id']}",
+                            type="secondary",
+                        ):
+                            try:
+                                delete_story(story)
+                                st.session_state.map_version = (
+                                    st.session_state.get("map_version", 0) + 1
+                                )
+                                st.success("这条记忆已删除。")
+                                st.rerun()
+                            except Exception as exc:
+                                st.error("删除失败，请检查存储权限和数据库连接。")
+                                with st.expander("技术错误详情"):
+                                    st.code(str(exc))
 
 st.caption("请只与信任的朋友分享访问密码。图片存储桶为公开读取，请勿上传敏感照片。")
