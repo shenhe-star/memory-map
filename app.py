@@ -149,6 +149,20 @@ def save_story(latitude, longitude, content, image_path=None, image_url=None):
     }).execute()
 
 
+def update_story(story_id, content, image_path=None, image_url=None, update_image=False):
+    """Update story text; update photo fields only when explicitly requested."""
+    payload = {"content": content.strip()}
+    if update_image:
+        payload["image_path"] = image_path
+        payload["image_url"] = image_url
+    return (
+        supabase.table("stories")
+        .update(payload)
+        .eq("id", story_id)
+        .execute()
+    )
+
+
 def delete_story(story):
     image_path = story.get("image_path")
     if image_path:
@@ -291,22 +305,116 @@ with right:
             st.caption("地图上还没有记录。你可以先创建第一条。")
         else:
             for idx, story in enumerate(stories):
+                story_id = str(story["id"])
                 title = f"记忆 {len(stories)-idx} · {story['latitude']:.3f}, {story['longitude']:.3f}"
                 with st.expander(title):
                     st.write(story["content"])
                     st.caption(f"创建时间：{story.get('created_at', '未知')}")
                     if story.get("image_url"):
                         st.image(story["image_url"], use_container_width=True)
+                    else:
+                        st.caption("这条记忆还没有添加照片。")
 
-                    # 每条记忆都使用自己的 ID 作为组件 key，避免记录增加后发生重复 Key 错误。
-                    confirm_key = f"confirm_delete_{story['id']}"
+                    edit_state_key = f"editing_story_{story_id}"
+                    if st.button(
+                        "取消编辑" if st.session_state.get(edit_state_key, False) else "编辑这条记忆",
+                        key=f"edit_toggle_{story_id}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[edit_state_key] = not st.session_state.get(edit_state_key, False)
+                        st.rerun()
+
+                    if st.session_state.get(edit_state_key, False):
+                        st.markdown("**修改这条记忆**")
+                        with st.form(f"edit_form_{story_id}", clear_on_submit=False):
+                            edited_content = st.text_area(
+                                "记忆文字",
+                                value=story.get("content", ""),
+                                max_chars=3000,
+                                height=130,
+                                key=f"edit_content_{story_id}",
+                            )
+                            if story.get("image_url"):
+                                st.caption("当前照片")
+                                st.image(story["image_url"], use_container_width=True)
+                            else:
+                                st.caption("当前没有照片，可以在这里补充。")
+
+                            replacement_image = st.file_uploader(
+                                "添加或更换照片（可选）",
+                                type=["jpg", "jpeg", "png", "webp"],
+                                help="不上传新照片就保留原照片；单张最大 5MB。",
+                                key=f"edit_image_{story_id}",
+                            )
+                            remove_existing_image = False
+                            if story.get("image_url"):
+                                remove_existing_image = st.checkbox(
+                                    "删除当前照片",
+                                    key=f"remove_image_{story_id}",
+                                )
+
+                            save_edit = st.form_submit_button(
+                                "保存修改",
+                                use_container_width=True,
+                            )
+
+                        if save_edit:
+                            if not edited_content.strip():
+                                st.warning("记忆文字不能为空。")
+                            else:
+                                old_image_path = story.get("image_path")
+                                new_image_path = None
+                                update_image_fields = False
+                                image_path_for_update = old_image_path
+                                image_url_for_update = story.get("image_url")
+
+                                try:
+                                    if replacement_image is not None:
+                                        new_image_path, new_image_url = upload_image(replacement_image)
+                                        image_path_for_update = new_image_path
+                                        image_url_for_update = new_image_url
+                                        update_image_fields = True
+                                    elif remove_existing_image:
+                                        image_path_for_update = None
+                                        image_url_for_update = None
+                                        update_image_fields = True
+
+                                    update_story(
+                                        story_id=story["id"],
+                                        content=edited_content,
+                                        image_path=image_path_for_update,
+                                        image_url=image_url_for_update,
+                                        update_image=update_image_fields,
+                                    )
+
+                                    if update_image_fields and old_image_path and old_image_path != image_path_for_update:
+                                        try:
+                                            supabase.storage.from_(STORAGE_BUCKET).remove([old_image_path])
+                                        except Exception:
+                                            st.warning("文字和照片已更新，但旧照片文件未能自动清理；不影响新记录。")
+
+                                    st.session_state[edit_state_key] = False
+                                    st.session_state.map_version = st.session_state.get("map_version", 0) + 1
+                                    st.success("这条记忆已更新。")
+                                    st.rerun()
+                                except Exception as exc:
+                                    if new_image_path:
+                                        try:
+                                            supabase.storage.from_(STORAGE_BUCKET).remove([new_image_path])
+                                        except Exception:
+                                            pass
+                                    st.error("修改失败。请检查数据库和图片存储权限。")
+                                    with st.expander("技术错误详情"):
+                                        st.code(str(exc))
+
+                    confirm_key = f"confirm_delete_{story_id}"
                     if st.checkbox(
                         "我确认要永久删除这条记忆",
                         key=confirm_key,
                     ):
                         if st.button(
                             "删除这条记忆",
-                            key=f"delete_{story['id']}",
+                            key=f"delete_{story_id}",
                             type="secondary",
                         ):
                             try:
